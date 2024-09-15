@@ -59,7 +59,7 @@ async function uploadToCloudflareImages(
 
   // Upload to Cloudflare Images API
   try {
-    await axios.post(
+    const response = await axios.post(
       `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/images/v1`,
       formData,
       {
@@ -70,6 +70,7 @@ async function uploadToCloudflareImages(
       }
     );
     console.log(`File ${id} uploaded successfully to Cloudflare Images.`);
+    return response.data;
   } catch (error) {
     console.error("Error uploading to Cloudflare Images:", error);
     throw error;
@@ -107,6 +108,7 @@ async function uploadToCloudflareStream(
       },
       onError: function (error) {
         console.error("Failed to upload video:", error);
+        reject(error);
       },
       onProgress: function (bytesUploaded, bytesTotal) {
         const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
@@ -115,10 +117,14 @@ async function uploadToCloudflareStream(
         );
       },
       onSuccess: function () {
+        // Extract the uid from the upload URL and remove the query string
+        const uidWithParams = upload.url.split("/").pop();
+        const uid = uidWithParams.split("?")[0]; // Remove the query string
+
         console.log(
           "Video upload to Cloudflare Stream completed successfully."
         );
-        resolve();
+        resolve({ uid }); // Return the cleaned uid
       },
     };
 

@@ -1,3 +1,5 @@
+const axios = require("axios");
+
 // Load environment variables
 require("dotenv").config();
 
@@ -60,6 +62,7 @@ async function processNewFiles() {
         fileName,
         fileType,
         path,
+        createdAt,
         dateTaken,
         gpsLatitude,
         gpsLongitude,
@@ -85,38 +88,151 @@ async function processNewFiles() {
 
       // Prepare metadata from the file
       const metadata = {
+        createdAt: createdAt,
         dateTaken: dateTaken || "Unknown",
         gpsLatitude: gpsLatitude || "Unknown",
         gpsLongitude: gpsLongitude || "Unknown",
       };
 
+      let cloudflareId;
+
       // Upload the file to Cloudflare based on file type
       if (fileType.startsWith("image/")) {
         // Use buffer for image uploads
-        await retryOperation(() =>
+        const imageResponse = await retryOperation(() =>
           uploadToCloudflareImages(id, fileName, buffer, fileType, metadata)
+        );
+        cloudflareId = imageResponse.result.id; // Extract Cloudflare image id
+
+        // Update status to 'ready' after image upload
+        await pgClient.query(
+          'UPDATE "File" SET "copiedToCloudflare" = TRUE, "cloudflareId" = $2, "status" = $3 WHERE id = $1',
+          [id, cloudflareId, "ready"]
         );
       } else if (fileType.startsWith("video/")) {
         // Use buffer for video uploads
-        await retryOperation(() =>
+        const videoResponse = await retryOperation(() =>
           uploadToCloudflareStream(id, fileName, buffer, fileType, metadata)
         );
+        console.log(videoResponse);
+        cloudflareId = videoResponse.uid; // Extract Cloudflare video uid
       }
 
-      // Mark the file as copied in the database
+      // Set status to 'pending' after video upload
       await pgClient.query(
-        'UPDATE "File" SET "copiedToCloudflare" = TRUE WHERE id = $1',
-        [id]
+        'UPDATE "File" SET "copiedToCloudflare" = TRUE, "cloudflareId" = $2, "status" = $3 WHERE id = $1',
+        [id, cloudflareId, "pending"]
       );
 
       console.log(`File ${id} processed successfully.`);
     }
   } catch (error) {
     console.error("Error processing files:", error);
-  } finally {
-    await pgClient.end(); // Close the database connection after processing
   }
 }
 
-// Start the file processing
-processNewFiles();
+// Function to poll for video thumbnail and update status
+async function pollPendingVideos() {
+  try {
+    console.log("Fetching pending videos...");
+
+    // Query all pending videos
+    const pendingVideos = await pgClient.query(
+      'SELECT * FROM "File" WHERE "status" = $1',
+      ["pending"]
+    );
+
+    const maxPollingTime = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const pollingInterval = 20 * 1000; // 20 seconds in milliseconds
+
+    const pollingPromises = pendingVideos.rows.map((video) => {
+      return new Promise((resolve, reject) => {
+        const startTime = Date.now();
+
+        const poll = async () => {
+          try {
+            const response = await axios.get(
+              `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/stream/${video.cloudflareId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+                },
+              }
+            );
+
+            if (response.data.success) {
+              const { thumbnail, status } = response.data.result;
+
+              if (status.state === "ready" && thumbnail) {
+                // Update status to 'ready' and set the thumbnail URL in the database
+                await pgClient.query(
+                  'UPDATE "File" SET "status" = $2, "thumbnail" = $3 WHERE id = $1',
+                  [video.id, "ready", thumbnail]
+                );
+                console.log(
+                  `Thumbnail ready for video ${video.id}: ${thumbnail}`
+                );
+                resolve(); // Resolve when processing is done
+              } else if (status.state === "inprogress") {
+                if (Date.now() - startTime < maxPollingTime) {
+                  console.log(
+                    `Video ${video.id} is still processing... Retrying in ${
+                      pollingInterval / 1000
+                    } seconds.`
+                  );
+                  setTimeout(poll, pollingInterval); // Retry after 20 seconds
+                } else {
+                  console.error(
+                    `Stopped polling for video ${video.id} after 10 minutes`
+                  );
+                  resolve(); // Stop polling after 10 minutes
+                }
+              } else {
+                console.error(
+                  `Video processing failed for ${video.id}. Status: ${status.state}`
+                );
+                if (Date.now() - startTime < maxPollingTime) {
+                  setTimeout(poll, pollingInterval); // Retry after 20 seconds, but don't reject
+                } else {
+                  console.error(
+                    `Stopped polling for video ${video.id} after 10 minutes due to failure`
+                  );
+                  resolve(); // Stop polling after 10 minutes, but don't reject
+                }
+              }
+            }
+          } catch (error) {
+            reject(
+              new Error(`Error polling video ${video.id}: ${error.message}`)
+            );
+          }
+        };
+
+        poll(); // Start the polling process
+      });
+    });
+
+    // Execute all polling processes concurrently
+    const results = await Promise.allSettled(pollingPromises);
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        console.log(
+          `Video ${pendingVideos.rows[index].id} processed successfully.`
+        );
+      } else {
+        console.error(result.reason);
+      }
+    });
+
+    console.log("All pending videos processed.");
+  } catch (error) {
+    console.error("Error processing pending videos:", error);
+  }
+}
+
+// Start the file processing and then process pending videos
+(async () => {
+  await processNewFiles();
+  await pollPendingVideos();
+  await pgClient.end(); // Close the database connection after all processing
+})();
