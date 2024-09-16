@@ -142,11 +142,11 @@ async function pollPendingVideos() {
       ["pending"]
     );
 
-    const maxPollingTime = 10 * 60 * 1000; // 10 minutes in milliseconds
-    const pollingInterval = 20 * 1000; // 20 seconds in milliseconds
+    const maxPollingTime = 2 * 60 * 1000; // 2 minutes
+    const pollingInterval = 20 * 1000; // 20 seconds
 
     const pollingPromises = pendingVideos.rows.map((video) => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const startTime = Date.now();
 
         const poll = async () => {
@@ -172,39 +172,39 @@ async function pollPendingVideos() {
                 console.log(
                   `Thumbnail ready for video ${video.id}: ${thumbnail}`
                 );
-                resolve(); // Resolve when processing is done
-              } else if (status.state === "inprogress") {
+                resolve(); // Stop polling when the video is ready
+              } else {
+                // Continue polling for "queued" or "inprogress" or any other status
                 if (Date.now() - startTime < maxPollingTime) {
                   console.log(
-                    `Video ${video.id} is still processing... Retrying in ${
-                      pollingInterval / 1000
-                    } seconds.`
+                    `Video ${video.id} is still ${
+                      status.state
+                    }... Retrying in ${pollingInterval / 1000} seconds.`
                   );
                   setTimeout(poll, pollingInterval); // Retry after 20 seconds
                 } else {
                   console.error(
-                    `Stopped polling for video ${video.id} after 10 minutes`
+                    `Stopped polling for video ${video.id} after 2 minutes.`
                   );
-                  resolve(); // Stop polling after 10 minutes
-                }
-              } else {
-                console.error(
-                  `Video processing failed for ${video.id}. Status: ${status.state}`
-                );
-                if (Date.now() - startTime < maxPollingTime) {
-                  setTimeout(poll, pollingInterval); // Retry after 20 seconds, but don't reject
-                } else {
-                  console.error(
-                    `Stopped polling for video ${video.id} after 10 minutes due to failure`
-                  );
-                  resolve(); // Stop polling after 10 minutes, but don't reject
+                  resolve(); // Stop polling after 2 minutes
                 }
               }
             }
           } catch (error) {
-            reject(
-              new Error(`Error polling video ${video.id}: ${error.message}`)
-            );
+            // If any error occurs, retry until the 2-minute limit is reached
+            if (Date.now() - startTime < maxPollingTime) {
+              console.error(
+                `Error polling video ${video.id}: ${
+                  error.message
+                }. Retrying in ${pollingInterval / 1000} seconds.`
+              );
+              setTimeout(poll, pollingInterval); // Retry after 20 seconds
+            } else {
+              console.error(
+                `Stopped polling for video ${video.id} after 2 minutes due to repeated errors`
+              );
+              resolve(); // Stop polling after 2 minutes
+            }
           }
         };
 

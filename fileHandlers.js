@@ -122,7 +122,7 @@ async function uploadToCloudflareStream(
         const uid = uidWithParams.split("?")[0]; // Remove the query string
 
         console.log(
-          "Video upload to Cloudflare Stream completed successfully."
+          `Video upload to Cloudflare Stream completed successfully. (uid: ${uid})`
         );
         resolve({ uid }); // Return the cleaned uid
       },
