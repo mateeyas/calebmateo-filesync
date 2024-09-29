@@ -116,13 +116,13 @@ async function processNewFiles() {
         );
         console.log(videoResponse);
         cloudflareId = videoResponse.uid; // Extract Cloudflare video uid
-      }
 
-      // Set status to 'pending' after video upload
-      await pgClient.query(
-        'UPDATE "File" SET "copiedToCloudflare" = TRUE, "cloudflareId" = $2, "status" = $3 WHERE id = $1',
-        [id, cloudflareId, "pending"]
-      );
+        // Set status to 'pending' after video upload
+        await pgClient.query(
+          'UPDATE "File" SET "copiedToCloudflare" = TRUE, "cloudflareId" = $2, "status" = $3 WHERE id = $1',
+          [id, cloudflareId, "pending"]
+        );
+      }
 
       console.log(`File ${id} processed successfully.`);
     }
