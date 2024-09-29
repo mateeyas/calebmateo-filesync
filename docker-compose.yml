@@ -1,10 +1,14 @@
 services:
-  filesync-cron:
+  calebmateo-filesync:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: filesync-cron
+    container_name: calebmateo-filesync
     env_file:
       - .env
     restart: unless-stopped
-    
+    labels:
+      project: "kazoku"
+      service: "calebmateo-filesync"
+      environment: "production"
+      version: "1.1.0"
