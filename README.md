@@ -24,7 +24,7 @@ To set up the project, follow these steps:
     cd your-repo-name
     ```
 
-2. **Create a `.env` file** in the root directory and add your environment variables**:
+2. **Create a `.env` file** in the root directory and add your environment variables:
 
     ```plaintext
     DATABASE_URL="postgresql://username:password@hostname:port/database"
@@ -96,24 +96,24 @@ calebmateo-filesync/
 Navigate to your project directory and build the Docker image using Docker Compose:
 
 ```sh
-docker-compose build
+docker compose build
 ```
 
 **Explanation:**
 
-- **`docker-compose build`**: Builds the Docker image as defined in the `docker-compose.yml` file.
+- **`docker compose build`**: Builds the Docker image as defined in the `docker-compose.yml` file.
 
 ### **2. Running the Docker Container**
 
 After building the image, start the container using Docker Compose:
 
 ```sh
-docker-compose up -d
+docker compose up -d
 ```
 
 **Explanation:**
 
-- **`docker-compose up`**: Creates and starts the containers.
+- **`docker compose up`**: Creates and starts the containers.
 - **`-d`**: Runs containers in detached mode (in the background).
 
 ### **3. Managing the Docker Container**
@@ -121,7 +121,7 @@ docker-compose up -d
 - **Stop the Container**:
 
     ```sh
-    docker-compose down
+    docker compose down
     ```
 
 - **Rebuild and Restart After Changes**:
@@ -129,7 +129,7 @@ docker-compose up -d
     If you make changes to your `Dockerfile`, `docker-compose.yml`, or application code, rebuild and restart:
 
     ```sh
-    docker-compose up -d --build
+    docker compose up -d --build
     ```
 
 - **View Logs**:
@@ -143,7 +143,7 @@ docker-compose up -d
     - **Container Logs**:
 
         ```sh
-        docker-compose logs -f
+        docker compose logs -f
         ```
 
 - **Access the Container Shell**:
@@ -151,7 +151,7 @@ docker-compose up -d
     For debugging purposes, you can access the container's shell:
 
     ```sh
-    docker-compose exec filesync-cron sh
+    docker compose exec filesync-cron sh
     ```
 
 ### **4. Environment Variables**
@@ -199,7 +199,7 @@ volumes:
 Whenever you update your application code or dependencies, rebuild the Docker image and restart the container to apply changes.
 
 ```sh
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 **Explanation:**
@@ -211,7 +211,7 @@ docker-compose up -d --build
 To remove stopped containers, networks, images, and optionally, volumes:
 
 ```sh
-docker-compose down --volumes --remove-orphans
+docker compose down --volumes --remove-orphans
 ```
 
 **Explanation:**
@@ -262,43 +262,43 @@ For ease of management, here are some useful Docker Compose commands tailored to
 - **Build the Docker Image**:
 
     ```sh
-    docker-compose build
+    docker compose build
     ```
 
 - **Start the Docker Container**:
 
     ```sh
-    docker-compose up -d
+    docker compose up -d
     ```
 
 - **Stop the Docker Container**:
 
     ```sh
-    docker-compose down
+    docker compose down
     ```
 
 - **View Logs**:
 
     ```sh
-    docker-compose logs -f
+    docker compose logs -f
     ```
 
 - **Rebuild and Restart the Container After Changes**:
 
     ```sh
-    docker-compose up -d --build
+    docker compose up -d --build
     ```
 
 - **Access the Container's Shell**:
 
     ```sh
-    docker-compose exec filesync-cron sh
+    docker compose exec filesync-cron sh
     ```
 
 - **Remove All Docker Containers, Networks, and Volumes**:
 
     ```sh
-    docker-compose down --volumes --remove-orphans
+    docker compose down --volumes --remove-orphans
     ```
 
 ## Docker Compose File (`docker-compose.yml`)
