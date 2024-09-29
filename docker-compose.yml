@@ -6,6 +6,5 @@ services:
     container_name: filesync-cron
     env_file:
       - .env
-    volumes:
-      - ./logs:/var/log
     restart: unless-stopped
+    

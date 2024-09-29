@@ -1,2 +1,0 @@
-# Run every 20 minutes
-*/20 * * * * cd /usr/src/app && pnpm start >> /var/log/cron.log 2>&1
