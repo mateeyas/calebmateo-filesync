@@ -1,6 +1,6 @@
 # File Processing Service for Cloudflare and DigitalOcean Spaces
 
-**Version: 1.1.0**
+**Version: 2.0.0**
 
 This repository contains a Node.js service that processes files stored in DigitalOcean Spaces, uploads them to Cloudflare (either to Images or Stream), and updates the metadata stored in a PostgreSQL database. The service handles different file types, such as images and videos, and retries uploads on errors like timeouts.
 
@@ -13,6 +13,8 @@ This repository contains a Node.js service that processes files stored in Digita
 - **Metadata Management**: Utilize metadata (e.g., date taken, GPS coordinates) stored in a PostgreSQL database.
 - **Unique Filenames**: Use the file's unique `id` as the filename in Cloudflare.
 - **Error Handling**: Retry uploads on transient errors such as timeouts (HTTP 524) and server errors (HTTP 500, 502, 503, 504).
+- **Logging**: Comprehensive logging for both application processes and scheduled tasks.
+- **Security**: Secure handling of environment variables and restricted access to Docker functionalities.
 
 ## Table of Contents
 
@@ -65,6 +67,7 @@ SPACES_SECRET="your-digitalocean-spaces-secret"
 SPACES_BUCKET="your-digitalocean-spaces-bucket"
 CLOUDFLARE_ACCOUNT_ID="your-cloudflare-account-id"
 CLOUDFLARE_API_TOKEN="your-cloudflare-api-token"
+PORT=3000
 ```
 
 **Security Note:** Ensure that the `.env` file is **never** committed to version control. It is included in `.gitignore` to prevent accidental exposure.
@@ -97,7 +100,7 @@ Docker is used to containerize the application, ensuring consistency across diff
 
 ### 1. Modify the Dockerfile
 
-Ensure your `Dockerfile` is set up correctly by removing any cron-related configurations.
+Ensure your `Dockerfile` is set up correctly by removing any cron-related configurations and ensuring that `pnpm start` runs a long-lived process (e.g., a server).
 
 **Updated `Dockerfile`:**
 
@@ -126,20 +129,27 @@ COPY . .
 # Ensure the script has execute permissions (if necessary)
 RUN chmod +x processFiles.js
 
-# Expose any necessary ports (if your app requires it)
-# EXPOSE 3000
+# Expose necessary ports
+EXPOSE 3000
 
 # Start the application
 CMD ["pnpm", "start"]
 ```
 
+**Changes Made:**
+
+- **Removed `cron` Installation and Configuration:** Eliminates the installation of `cron`, copying of the `crontab` file, and creation of `cron.log`.
+- **Updated `CMD`:** The container now starts the Node.js application directly using `pnpm start`, which should run a long-lived process.
+
 ### 2. Update `docker-compose.yml`
 
-Remove any cron-related configurations and ensure your Docker Compose file reflects the current setup.
+Ensure your Docker Compose file reflects the removal of internal cron and labels your container for better management.
 
 **Updated `docker-compose.yml`:**
 
 ```yaml
+version: '3.8'
+
 services:
   filesync-cron:
     build:
@@ -149,9 +159,26 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    labels:
+      project: "filesync"
+      service: "filesync-cron"
+      environment: "production"
+      version: "2.0.0"
+      maintainer: "Matthias Ragus <matt@tala.dev>"
+    ports:
+      - "3000:3000" # Expose port if your application serves HTTP requests
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
 ```
 
-**Note:** Since cron is now managed on the host, the volume mount for logs related to cron inside the container has been removed. If your application generates its own logs, ensure you handle them appropriately.
+**Notes:**
+
+- **Labels:** Added meaningful labels for better organization and management.
+- **Ports:** Exposed port `3000` if your application serves HTTP requests.
+- **Health Check:** Added a health check to monitor the container's health status.
 
 ### 3. Build and Run Docker Containers
 
@@ -163,7 +190,7 @@ docker compose up -d --build
 
 - **`docker compose up`**: Creates and starts the containers.
 - **`-d`**: Runs containers in detached mode (in the background).
-- **`--build`**: Forces a rebuild of the Docker images before starting the containers.
+- **`--build`**: Forces Docker Compose to rebuild the images before starting the containers.
 
 ### 4. Verify Running Containers
 
@@ -174,24 +201,24 @@ docker compose ps
 **Expected Output:**
 
 ```plaintext
-      Name            Command          State    Ports
------------------------------------------------------
-filesync-cron   pnpm start            Up
+      Name                Command           State    Ports
+-------------------------------------------------------------
+filesync-cron   pnpm start                     Up      0.0.0.0:3000->3000/tcp
 ```
 
 ### 5. View Container Logs
 
 ```sh
-docker compose logs -f
+docker compose logs -f filesync-cron
 ```
 
-This command streams the logs from your containers in real-time. Ensure that your application is running without errors.
+This command streams the logs from your container in real-time. Ensure that your application is running without errors.
 
 ---
 
 ## Host-Based Cron Setup
 
-Instead of running `cron` inside the Docker container, you'll set up a cron job on the host system (DigitalOcean Droplet) to execute your task every 20 minutes. This approach simplifies your container configuration and avoids permission-related issues.
+Instead of running `cron` inside the Docker container, you'll set up a **cron job on the host system** (DigitalOcean Droplet) to execute your one-off task every 20 minutes. This approach simplifies your container configuration and avoids permission-related issues.
 
 ### 1. Create a Shell Script for the Cron Job
 
@@ -199,8 +226,10 @@ Creating a shell script encapsulates the command logic, making it easier to mana
 
 **a. Create the Script**
 
-```sh
-nano ~/calebmateo-filesync/run_filesync.sh
+On the host machine, create a script, e.g., `run_filesync_task.sh`.
+
+```bash
+nano ~/calebmateo-filesync/run_filesync_task.sh
 ```
 
 **b. Add the Following Content**
@@ -208,66 +237,147 @@ nano ~/calebmateo-filesync/run_filesync.sh
 ```bash
 #!/bin/bash
 
-# Navigate to the project directory
-cd /root/calebmateo-filesync || exit
+# run_filesync_task.sh
 
-# Execute the pnpm start command inside the Docker container
-docker compose exec filesync-cron pnpm start >> ./logs/cron_host.log 2>&1
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Navigate to the project directory
+cd /root/calebmateo-filesync || {
+  echo "Failed to navigate to project directory."
+  exit 1
+}
+
+# Execute the processFiles script inside the Docker container
+docker compose exec filesync-cron pnpm run processFiles >> ./logs/cron_host.log 2>&1
 ```
 
 **c. Make the Script Executable**
 
-```sh
-chmod +x ~/calebmateo-filesync/run_filesync.sh
+```bash
+chmod +x ~/calebmateo-filesync/run_filesync_task.sh
 ```
 
-### 2. Set Up the Cron Job
+### 2. Update `package.json` to Include a `processFiles` Script
+
+Ensure that your `processFiles.js` can be executed as a one-off task.
+
+**Updated `package.json`:**
+
+```json
+{
+  "scripts": {
+    "start": "node server.js",
+    "processFiles": "node processFiles.js --task"
+  }
+}
+```
+
+**Note:** Replace `"node server.js"` with your actual server entry point if different.
+
+### 3. Modify `processFiles.js` to Handle Task Mode
+
+Ensure that `processFiles.js` can distinguish between running as a server and executing a one-off task.
+
+**Updated `processFiles.js`:**
+
+```javascript
+// processFiles.js
+
+const { argv } = require('process');
+
+if (argv.includes('--task')) {
+  // Execute the file processing task
+  processFiles();
+} else {
+  // Start the server or long-running process
+  startServer();
+}
+
+function processFiles() {
+  console.log('Starting file processing task...');
+  // Your file processing logic here
+
+  // Simulate task completion
+  setTimeout(() => {
+    console.log('File processing task completed.');
+    process.exit(0); // Exit after completing the task
+  }, 5000);
+}
+
+function startServer() {
+  const express = require('express');
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+
+  app.get('/health', (req, res) => {
+    res.send('OK');
+  });
+
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+
+  // Handle graceful shutdown
+  process.on('SIGTERM', () => {
+    server.close(() => {
+      console.log('Process terminated');
+    });
+  });
+}
+```
+
+**Explanation:**
+
+- **Task Mode (`--task`):** Runs the file processing task and exits.
+- **Server Mode:** Starts the server and keeps the container running.
+
+### 4. Set Up the Cron Job
 
 Edit the crontab for the desired user (e.g., `root`).
 
-```sh
+```bash
 crontab -e
 ```
 
 **Add the Following Line to Schedule the Task Every 20 Minutes:**
 
 ```cron
-*/20 * * * * /root/calebmateo-filesync/run_filesync.sh
+*/20 * * * * /root/calebmateo-filesync/run_filesync_task.sh
 ```
 
 **Explanation:**
 
 - **`*/20 * * * *`**: Runs the job every 20 minutes.
-- **`/root/calebmateo-filesync/run_filesync.sh`**: The absolute path to the shell script you created.
+- **`/root/calebmateo-filesync/run_filesync_task.sh`**: The absolute path to the shell script you created.
 
 **Alternatively, If Not Using a Shell Script, Add Directly:**
 
 ```cron
-*/20 * * * * docker compose -f /root/calebmateo-filesync/docker-compose.yml exec filesync-cron pnpm start >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
+*/20 * * * * docker compose -f /root/calebmateo-filesync/docker-compose.yml exec filesync-cron pnpm run processFiles >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
 ```
 
 **Notes:**
 
-- **Absolute Paths**: Always use absolute paths in cron jobs to avoid issues with environment variables.
-- **Logging**: The output is appended to `cron_host.log` for monitoring purposes. Ensure the `logs` directory exists.
+- **Absolute Paths:** Always use absolute paths in cron jobs to avoid issues with environment variables.
+- **Logging:** The output is appended to `cron_host.log` for monitoring purposes. Ensure the `logs` directory exists.
 
-### 3. Verify the Cron Job
+### 5. Verify the Cron Job
 
-After the cron job runs (wait for 20 minutes), verify the log file to ensure it executed correctly.
+After the cron job runs (wait for at least 20 minutes), verify that the `cron_host.log` is being updated correctly.
 
-```sh
+```bash
 tail -f /root/calebmateo-filesync/logs/cron_host.log
 ```
 
 **Expected Output:**
 
 ```plaintext
-[Date & Time] Starting file processing...
-[Date & Time] File processed successfully: file1.jpg
-# ... other log entries
+Starting file processing task...
+File processing task completed.
 ```
 
-### 4. Ensure Proper Permissions
+### 6. Ensure Proper Permissions
 
 Ensure that the user running the cron job has the necessary permissions to execute Docker commands.
 
@@ -275,7 +385,7 @@ Ensure that the user running the cron job has the necessary permissions to execu
 
 If you're running the cron job as a non-root user, add the user to the `docker` group to allow execution of Docker commands without `sudo`.
 
-```sh
+```bash
 sudo usermod -aG docker your_username
 ```
 
@@ -283,13 +393,13 @@ sudo usermod -aG docker your_username
 
 Either log out and log back in or run:
 
-```sh
+```bash
 newgrp docker
 ```
 
 **Verify Group Membership:**
 
-```sh
+```bash
 groups your_username
 ```
 
@@ -317,9 +427,10 @@ calebmateo-filesync/
 ├── .env                         # Environment variables
 ├── package.json                 # Node.js dependencies and scripts
 ├── pnpm-lock.yaml               # pnpm lockfile
+├── server.js                    # Server entry point
 ├── processFiles.js              # Main file processing service
 ├── fileHandlers.js              # Handles file downloads and uploads to Cloudflare
-├── run_filesync.sh              # Shell script for cron job
+├── run_filesync_task.sh         # Shell script for cron job
 ├── logs/                        # Directory for log files
 │   └── cron_host.log            # Log file for cron job
 └── ... (other project files)
@@ -329,13 +440,13 @@ calebmateo-filesync/
 
 ## Logging and Monitoring
 
-Proper logging is essential for monitoring the cron job's execution and troubleshooting any issues.
+Proper logging is essential for monitoring the application's execution and troubleshooting any issues.
 
 ### 1. Create a Logs Directory
 
 Ensure that the `logs` directory exists to store cron job logs.
 
-```sh
+```bash
 mkdir -p /root/calebmateo-filesync/logs
 ```
 
@@ -345,14 +456,14 @@ To prevent log files from growing indefinitely, set up log rotation.
 
 #### a. Install `logrotate`
 
-```sh
+```bash
 sudo apt update
 sudo apt install logrotate -y
 ```
 
 #### b. Create a Logrotate Configuration File
 
-```sh
+```bash
 sudo nano /etc/logrotate.d/filesync-cron-host
 ```
 
@@ -381,7 +492,7 @@ sudo nano /etc/logrotate.d/filesync-cron-host
 
 #### d. Test Logrotate Configuration
 
-```sh
+```bash
 sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 ```
 
@@ -421,13 +532,13 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Ensure the cron service is running on the host.
 
-  ```sh
+  ```bash
   sudo service cron status
   ```
 
   **Start Cron Service If Not Running:**
 
-  ```sh
+  ```bash
   sudo service cron start
   ```
 
@@ -435,22 +546,22 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Ensure the cron job is correctly added.
 
-  ```sh
+  ```bash
   crontab -l
   ```
 
 - **Check Script Permissions:**
 
-  Ensure the `run_filesync.sh` script is executable.
+  Ensure the `run_filesync_task.sh` script is executable.
 
-  ```sh
-  ls -l /root/calebmateo-filesync/run_filesync.sh
+  ```bash
+  ls -l /root/calebmateo-filesync/run_filesync_task.sh
   ```
 
   **Expected Output:**
 
   ```plaintext
-  -rwxr-xr-x 1 root root  123 Sep 30 10:00 run_filesync.sh
+  -rwxr-xr-x 1 root root  123 Sep 30 10:00 run_filesync_task.sh
   ```
 
 ### 2. Docker Command Fails in Cron Job
@@ -459,7 +570,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   The user running the cron job must have permissions to execute Docker commands. If not running as `root`, ensure the user is part of the `docker` group.
 
-  ```sh
+  ```bash
   sudo usermod -aG docker your_username
   newgrp docker
   ```
@@ -474,13 +585,13 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Ensure the `logs` directory exists and has appropriate permissions.
 
-  ```sh
+  ```bash
   ls -ld /root/calebmateo-filesync/logs
   ```
 
   **Create If Missing:**
 
-  ```sh
+  ```bash
   mkdir -p /root/calebmateo-filesync/logs
   ```
 
@@ -488,7 +599,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Ensure the log file is writable.
 
-  ```sh
+  ```bash
   touch /root/calebmateo-filesync/logs/cron_host.log
   chmod 644 /root/calebmateo-filesync/logs/cron_host.log
   ```
@@ -499,7 +610,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Review the log file to identify any errors during execution.
 
-  ```sh
+  ```bash
   tail -f /root/calebmateo-filesync/logs/cron_host.log
   ```
 
@@ -507,8 +618,8 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
   Execute the command manually to ensure it works outside of cron.
 
-  ```sh
-  /root/calebmateo-filesync/run_filesync.sh
+  ```bash
+  /root/calebmateo-filesync/run_filesync_task.sh
   ```
 
   **Check Logs for Successful Execution.**
@@ -530,7 +641,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
 - **Inspect Container Environment Variables:**
 
-  ```sh
+  ```bash
   docker compose exec filesync-cron env
   ```
 
@@ -558,13 +669,13 @@ Email: [matt@tala.dev](mailto:matt@tala.dev)
 - **Docker Documentation:**
   - [Docker Compose Overview](https://docs.docker.com/compose/)
   - [Best Practices for Writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
-
+  
 - **Cron Documentation:**
   - [Cron How-To](https://help.ubuntu.com/community/CronHowto)
-
+  
 - **Node.js Documentation:**
   - [pnpm Documentation](https://pnpm.io/)
-
+  
 - **DigitalOcean Documentation:**
   - [How To Use Docker](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04)
   - [How To Install Docker Compose](https://www.digitalocean.com/community/tutorials/how-to-install-docker-compose-on-ubuntu-20-04)

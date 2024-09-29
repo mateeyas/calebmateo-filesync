@@ -1,11 +1,11 @@
 # Use an official Node.js runtime as the base image
 FROM node:22-alpine
 
-# Install bash
+# Install bash (if needed)
 RUN apk add --no-cache bash
 
 # Install pnpm globally
-RUN npm install -g pnpm@9.11.0
+RUN npm install -g pnpm@9.4.0
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -22,8 +22,5 @@ COPY . .
 # Ensure the script has execute permissions (if necessary)
 RUN chmod +x processFiles.js
 
-# Expose any necessary ports (if your app requires it)
-# EXPOSE 3000
-
-# Start the application
+# Define the default command
 CMD ["pnpm", "start"]
