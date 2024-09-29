@@ -151,19 +151,19 @@ Ensure your Docker Compose file reflects the removal of internal cron and labels
 version: '3.8'
 
 services:
-  filesync-cron:
+  calebmateo-filesync:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: filesync-cron
+    container_name: calebmateo-filesync
     env_file:
       - .env
     restart: unless-stopped
     labels:
       project: "filesync"
-      service: "filesync-cron"
+      service: "calebmateo-filesync"
       environment: "production"
-      version: "2.0.0"
+      version: "2.1.0"
       maintainer: "Matthias Ragus <matt@tala.dev>"
     ports:
       - "3000:3000" # Expose port if your application serves HTTP requests
@@ -176,7 +176,8 @@ services:
 
 **Notes:**
 
-- **Labels:** Added meaningful labels for better organization and management.
+- **Service Name & Container Name:** Updated from `filesync-cron` to `calebmateo-filesync`.
+- **Labels:** Updated to reflect the new service name.
 - **Ports:** Exposed port `3000` if your application serves HTTP requests.
 - **Health Check:** Added a health check to monitor the container's health status.
 
@@ -203,13 +204,13 @@ docker compose ps
 ```plaintext
       Name                Command           State    Ports
 -------------------------------------------------------------
-filesync-cron   pnpm start                     Up      0.0.0.0:3000->3000/tcp
+calebmateo-filesync   pnpm start                     Up      0.0.0.0:3000->3000/tcp
 ```
 
 ### 5. View Container Logs
 
 ```sh
-docker compose logs -f filesync-cron
+docker compose logs -f calebmateo-filesync
 ```
 
 This command streams the logs from your container in real-time. Ensure that your application is running without errors.
@@ -226,10 +227,10 @@ Creating a shell script encapsulates the command logic, making it easier to mana
 
 **a. Create the Script**
 
-On the host machine, create a script, e.g., `run_filesync_task.sh`.
+On the host machine, create a script named `calebmateo-filesync.sh`.
 
 ```bash
-nano ~/calebmateo-filesync/run_filesync_task.sh
+nano ~/calebmateo-filesync/calebmateo-filesync.sh
 ```
 
 **b. Add the Following Content**
@@ -237,7 +238,7 @@ nano ~/calebmateo-filesync/run_filesync_task.sh
 ```bash
 #!/bin/bash
 
-# run_filesync_task.sh
+# calebmateo-filesync.sh
 
 # Exit immediately if a command exits with a non-zero status
 set -e
@@ -249,13 +250,13 @@ cd /root/calebmateo-filesync || {
 }
 
 # Execute the processFiles script inside the Docker container
-docker compose exec filesync-cron pnpm run processFiles >> ./logs/cron_host.log 2>&1
+docker compose exec calebmateo-filesync pnpm run processFiles >> ./logs/cron_host.log 2>&1
 ```
 
 **c. Make the Script Executable**
 
 ```bash
-chmod +x ~/calebmateo-filesync/run_filesync_task.sh
+chmod +x ~/calebmateo-filesync/calebmateo-filesync.sh
 ```
 
 ### 2. Update `package.json` to Include a `processFiles` Script
@@ -314,7 +315,7 @@ function startServer() {
     res.send('OK');
   });
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 
@@ -343,18 +344,18 @@ crontab -e
 **Add the Following Line to Schedule the Task Every 20 Minutes:**
 
 ```cron
-*/20 * * * * /root/calebmateo-filesync/run_filesync_task.sh
+*/20 * * * * /root/calebmateo-filesync/calebmateo-filesync.sh
 ```
 
 **Explanation:**
 
 - **`*/20 * * * *`**: Runs the job every 20 minutes.
-- **`/root/calebmateo-filesync/run_filesync_task.sh`**: The absolute path to the shell script you created.
+- **`/root/calebmateo-filesync/calebmateo-filesync.sh`**: The absolute path to the shell script you created.
 
 **Alternatively, If Not Using a Shell Script, Add Directly:**
 
 ```cron
-*/20 * * * * docker compose -f /root/calebmateo-filesync/docker-compose.yml exec filesync-cron pnpm run processFiles >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
+*/20 * * * * docker compose -f /root/calebmateo-filesync/docker-compose.yml exec calebmateo-filesync pnpm run processFiles >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
 ```
 
 **Notes:**
@@ -415,7 +416,7 @@ your_username : your_username docker
 
 ## Project Structure
 
-After implementing the host-based cron setup, your project directory should resemble the following structure:
+After implementing the host-based cron setup and renaming the service, your project directory should resemble the following structure:
 
 ```
 calebmateo-filesync/
@@ -430,7 +431,7 @@ calebmateo-filesync/
 ├── server.js                    # Server entry point
 ├── processFiles.js              # Main file processing service
 ├── fileHandlers.js              # Handles file downloads and uploads to Cloudflare
-├── run_filesync_task.sh         # Shell script for cron job
+├── calebmateo-filesync.sh        # Shell script for cron job
 ├── logs/                        # Directory for log files
 │   └── cron_host.log            # Log file for cron job
 └── ... (other project files)
@@ -552,16 +553,16 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
 - **Check Script Permissions:**
 
-  Ensure the `run_filesync_task.sh` script is executable.
+  Ensure the `calebmateo-filesync.sh` script is executable.
 
   ```bash
-  ls -l /root/calebmateo-filesync/run_filesync_task.sh
+  ls -l /root/calebmateo-filesync/calebmateo-filesync.sh
   ```
 
   **Expected Output:**
 
   ```plaintext
-  -rwxr-xr-x 1 root root  123 Sep 30 10:00 run_filesync_task.sh
+  -rwxr-xr-x 1 root root  123 Sep 30 10:00 calebmateo-filesync.sh
   ```
 
 ### 2. Docker Command Fails in Cron Job
@@ -619,7 +620,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
   Execute the command manually to ensure it works outside of cron.
 
   ```bash
-  /root/calebmateo-filesync/run_filesync_task.sh
+  /root/calebmateo-filesync/calebmateo-filesync.sh
   ```
 
   **Check Logs for Successful Execution.**
@@ -642,7 +643,7 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 - **Inspect Container Environment Variables:**
 
   ```bash
-  docker compose exec filesync-cron env
+  docker compose exec calebmateo-filesync env
   ```
 
   Verify that all necessary environment variables are present.
