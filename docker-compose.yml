@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  filesync-cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: filesync-cron
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/log
+    restart: unless-stopped

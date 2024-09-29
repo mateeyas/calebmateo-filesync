@@ -1,0 +1,40 @@
+# Node modules and dependencies
+node_modules
+.pnpm-store
+
+# Logs
+logs
+*.log
+
+# Environment variables
+.env
+
+# Docker-related files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE and editor settings
+.vscode
+.idea
+*.sublime-project
+*.sublime-workspace
+
+# Temporary files
+tmp
+temp
+
+# Build artifacts
+dist
+build
+
+# Others
+*.md
