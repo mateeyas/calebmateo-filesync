@@ -306,8 +306,6 @@ For ease of management, here are some useful Docker Compose commands tailored to
 For reference, here is the `docker-compose.yml` file used in this setup:
 
 ```yaml
-version: '3.8'
-
 services:
   filesync-cron:
     build:
@@ -323,7 +321,6 @@ services:
 
 **Explanation of Entries:**
 
-- **`version: '3.8'`**: Specifies the Docker Compose file format version.
 - **`services`**: Defines the services (containers) to be run.
   - **`filesync-cron`**: The name of your service.
     - **`build`**:
