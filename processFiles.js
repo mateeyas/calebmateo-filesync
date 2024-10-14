@@ -9,6 +9,7 @@ const {
   uploadToCloudflareImages,
   uploadToCloudflareStream,
 } = require("./fileHandlers");
+const { sendNewFilesNotification } = require('./emailHandlers');
 
 // PostgreSQL client setup
 const pgClient = new Client({
@@ -55,6 +56,8 @@ async function processNewFiles() {
     const result = await pgClient.query(
       'SELECT * FROM "File" WHERE "copiedToCloudflare" = FALSE'
     );
+
+    let processedFileCount = 0;
 
     for (const file of result.rows) {
       const {
@@ -124,8 +127,25 @@ async function processNewFiles() {
         );
       }
 
+      // Increment the processed file count
+      processedFileCount++;
+
       console.log(`File ${id} processed successfully.`);
     }
+
+    // Send email notification if any files were processed
+    if (processedFileCount > 0) {
+      // Fetch email addresses from the User table
+      const userEmailsResult = await pgClient.query('SELECT email FROM "User" WHERE "isActive" = TRUE');
+      const recipientEmails = userEmailsResult.rows.map(row => row.email);
+
+      if (recipientEmails.length > 0) {
+        await sendNewFilesNotification(recipientEmails, processedFileCount);
+      } else {
+        console.log("No active users found to send notifications to.");
+      }
+    }
+
   } catch (error) {
     console.error("Error processing files:", error);
   }
