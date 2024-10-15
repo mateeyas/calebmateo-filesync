@@ -17,25 +17,24 @@ function getRandomEmojis() {
   return selectedEmojis;
 }
 
-async function sendNewFilesNotification(recipientEmails, fileCount) {
+async function sendNewFilesNotification(recipients, fileCount) {
   try {
-    const recipients = Array.isArray(recipientEmails) ? recipientEmails : [recipientEmails];
     const emojis = getRandomEmojis();
 
-    const emailPromises = recipients.map(async (email) => {
+    const emailPromises = recipients.map(async (recipient) => {
       const response = await resend.emails.send({
         from: 'Calebmateo.com <noreply@calebmateo.com>',
-        to: email,
+        to: recipient.email,
         subject: `New files uploaded ${getRandomEmojis()}`,
         html: `
           <h2>New files uploaded ${getRandomEmojis()}</h2>
-          <p>Hi there!</p>
+          <p>Hi ${recipient.name}!</p>
           <p>Good news! ${fileCount} new file${fileCount !== 1 ? 's have' : ' has'} been uploaded to Calebmateo.com. A big thanks to whoever uploaded them!</p>
           <p>Take a look: <a href="https://www.calebmateo.com/app/albums/recent-photos"><strong>Recent photos and videos</strong></a></p>
           <p>See you soon! ${getRandomEmojis()}</p>
         `,
       });
-      console.log(`Email sent successfully to ${email}:`, response.id);
+      console.log(`Email sent successfully to ${recipient.email}:`, response.id);
       return response;
     });
 
