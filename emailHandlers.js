@@ -21,7 +21,7 @@ function getRandomEmojis() {
 async function sendErrorNotification(error, context) {
   try {
     await resend.emails.send({
-      from: 'Calebmateo.com <noreply@calebmateo.com>',
+      from: '"Calebmateo.com" <noreply@calebmateo.com>',
       to: 'logs@mskdgrf.com',
       subject: '⚠️ Email Notification Error',
       html: `
@@ -68,7 +68,7 @@ async function sendNewFilesNotification(recipients, fileCount) {
 
         try {
           const response = await resend.emails.send({
-            from: 'Calebmateo.com <noreply@calebmateo.com>',
+            from: '"Calebmateo.com" <noreply@calebmateo.com>',
             to: recipient.email,
             subject: `New files uploaded ${subjectEmojis}`,
             html: `
