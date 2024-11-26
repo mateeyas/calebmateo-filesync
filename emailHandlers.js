@@ -1,5 +1,4 @@
 const { Resend } = require('resend');
-const { logger } = require('./logHandlers');
 
 // Initialize Resend client
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -18,7 +17,7 @@ function getRandomEmojis() {
   return selectedEmojis;
 }
 
-async function sendErrorNotification(error, context) {
+async function sendErrorNotification(logger, error, context) {
   try {
     await resend.emails.send({
       from: '"Calebmateo.com" <noreply@calebmateo.com>',
@@ -42,7 +41,7 @@ async function sendErrorNotification(error, context) {
   }
 }
 
-async function sendNewFilesNotification(recipients, fileCount) {
+async function sendNewFilesNotification(logger, recipients, fileCount) {
   try {
     // Validate inputs
     if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -94,7 +93,7 @@ async function sendNewFilesNotification(recipients, fileCount) {
             recipient: recipient.email,
             error: error.message
           });
-          await sendErrorNotification(error, `Failed to send email to ${recipient.email}`);
+          await sendErrorNotification(logger, error, `Failed to send email to ${recipient.email}`);
           return { success: false, email: recipient.email, error: error.message };
         }
       })
@@ -113,7 +112,7 @@ async function sendNewFilesNotification(recipients, fileCount) {
     if (successful === 0 && failed > 0) {
       const error = new Error('All email notifications failed to send');
       await logger.error('All email notifications failed', { failedCount: failed });
-      await sendErrorNotification(error, `All ${failed} email notifications failed`);
+      await sendErrorNotification(logger, error, `All ${failed} email notifications failed`);
       throw error;
     }
 
@@ -123,7 +122,7 @@ async function sendNewFilesNotification(recipients, fileCount) {
       error: error.message,
       stack: error.stack
     });
-    await sendErrorNotification(error, 'General email notification process error');
+    await sendErrorNotification(logger, error, 'General email notification process error');
     throw error;
   }
 }
