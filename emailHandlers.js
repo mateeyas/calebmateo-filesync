@@ -1,4 +1,5 @@
 const { Resend } = require('resend');
+const { logger } = require('./logHandlers');
 
 // Initialize Resend client
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -31,14 +32,28 @@ async function sendErrorNotification(error, context) {
         <pre>${JSON.stringify(error, null, 2)}</pre>
       `,
     });
-    console.log('Error notification sent to logs@mskdgrf.com');
+    await logger.info('Error notification email sent', { recipient: 'logs@mskdgrf.com' });
   } catch (logError) {
-    console.error('Failed to send error notification:', logError);
+    await logger.error('Failed to send error notification email', { 
+      error: logError.message,
+      originalError: error.message,
+      context 
+    });
   }
 }
 
 async function sendNewFilesNotification(recipients, fileCount) {
   try {
+    // Validate inputs
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      throw new Error('No recipients provided for email notification');
+    }
+    if (!fileCount || fileCount <= 0) {
+      throw new Error('Invalid file count for email notification');
+    }
+
+    await logger.info('Starting email notifications', { recipientCount: recipients.length, fileCount });
+
     const subjectEmojis = getRandomEmojis();
     const headerEmojis = getRandomEmojis();
     const signatureEmojis = getRandomEmojis();
@@ -46,6 +61,11 @@ async function sendNewFilesNotification(recipients, fileCount) {
     // Map recipients to promises but handle individual failures
     const emailResults = await Promise.allSettled(
       recipients.map(async (recipient) => {
+        if (!recipient.email || !recipient.name) {
+          await logger.warn('Invalid recipient data', { recipient });
+          return { success: false, email: recipient.email || 'unknown', error: 'Invalid recipient data' };
+        }
+
         try {
           const response = await resend.emails.send({
             from: 'Calebmateo.com <noreply@calebmateo.com>',
@@ -59,10 +79,21 @@ async function sendNewFilesNotification(recipients, fileCount) {
               <p>See you soon! ${signatureEmojis}</p>
             `,
           });
-          console.log(`Email sent successfully to ${recipient.email}:`, response.id);
+          
+          if (!response || !response.id) {
+            throw new Error('Invalid response from email service');
+          }
+          
+          await logger.info('Email sent successfully', { 
+            recipient: recipient.email,
+            messageId: response.id 
+          });
           return { success: true, email: recipient.email, id: response.id };
         } catch (error) {
-          console.error(`Failed to send email to ${recipient.email}:`, error);
+          await logger.error('Failed to send email', {
+            recipient: recipient.email,
+            error: error.message
+          });
           await sendErrorNotification(error, `Failed to send email to ${recipient.email}`);
           return { success: false, email: recipient.email, error: error.message };
         }
@@ -77,18 +108,21 @@ async function sendNewFilesNotification(recipients, fileCount) {
       result.status === 'rejected' || !result.value.success
     ).length;
 
-    console.log(`Email notification summary: ${successful} sent successfully, ${failed} failed`);
+    await logger.info('Email notification summary', { successful, failed });
     
-    // If all emails failed, send error notification and throw error
     if (successful === 0 && failed > 0) {
       const error = new Error('All email notifications failed to send');
+      await logger.error('All email notifications failed', { failedCount: failed });
       await sendErrorNotification(error, `All ${failed} email notifications failed`);
       throw error;
     }
 
     return emailResults;
   } catch (error) {
-    console.error('Error in email notification process:', error);
+    await logger.error('Error in email notification process', { 
+      error: error.message,
+      stack: error.stack
+    });
     await sendErrorNotification(error, 'General email notification process error');
     throw error;
   }

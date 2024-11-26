@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { logger } = require('./logHandlers');
 
 // Load environment variables
 require("dotenv").config();
@@ -50,7 +51,7 @@ async function retryOperation(operation, retries = 3, delay = 2000) {
 // Function to process new files
 async function processNewFiles() {
   try {
-    console.log("Checking for new files to process...");
+    await logger.info('Checking for new files to process');
 
     // Query for files that haven't been copied to Cloudflare yet
     const result = await pgClient.query(
@@ -73,16 +74,16 @@ async function processNewFiles() {
 
       // Prepend 'files/' to the path if needed
       const fullPath = `files/${path}`;
-      console.log(`Processing file: ${id}, fullPath: ${fullPath}`);
+      await logger.info(`Processing file`, { id, fullPath });
 
       if (!fullPath) {
-        console.error(`Error: path is undefined for file ${id}`);
+        await logger.error(`Path is undefined for file`, { id });
         continue; // Skip this file if the path is missing
       }
 
       // Ignore files that are not images or videos
       if (!fileType.startsWith("image/") && !fileType.startsWith("video/")) {
-        console.log(`Skipping file: ${id}. Unsupported file type: ${fileType}`);
+        await logger.info(`Skipping unsupported file type`, { id, fileType });
         continue; // Skip to the next file
       }
 
@@ -130,7 +131,7 @@ async function processNewFiles() {
       // Increment the processed file count
       processedFileCount++;
 
-      console.log(`File ${id} processed successfully.`);
+      await logger.info(`File processed successfully`, { id });
     }
 
     // Send email notification if any files were processed
@@ -138,22 +139,35 @@ async function processNewFiles() {
       // Fetch email addresses and names from the User table
       const userResult = await pgClient.query('SELECT email, name FROM "User"');
       const recipients = userResult.rows;
-
+      
+      await logger.info('Found recipients for notification', { 
+        recipientCount: recipients.length,
+        processedFileCount 
+      });
+      
       if (recipients.length > 0) {
-        await sendNewFilesNotification(recipients, processedFileCount);
+        try {
+          const emailResults = await sendNewFilesNotification(recipients, processedFileCount);
+          await logger.info('Email notifications completed', { emailResults });
+        } catch (error) {
+          await logger.error('Failed to send email notifications', { error: error.message });
+        }
       } else {
-        console.log("No active users found to send notifications to.");
+        await logger.info('No active users found for notifications');
       }
     }
   } catch (error) {
-    console.error("Error processing files:", error);
+    await logger.error('Error processing files', { 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 }
 
 // Function to poll for video thumbnail and update status
 async function pollPendingVideos() {
   try {
-    console.log("Fetching pending videos...");
+    await logger.info('Fetching pending videos');
 
     // Query all pending videos
     const pendingVideos = await pgClient.query(
@@ -188,23 +202,21 @@ async function pollPendingVideos() {
                   'UPDATE "File" SET "status" = $2, "thumbnail" = $3 WHERE id = $1',
                   [video.id, "ready", thumbnail]
                 );
-                console.log(
-                  `Thumbnail ready for video ${video.id}: ${thumbnail}`
-                );
+                await logger.info(`Video thumbnail ready`, { 
+                  videoId: video.id,
+                  thumbnail 
+                });
                 resolve(); // Stop polling when the video is ready
               } else {
                 // Continue polling for "queued" or "inprogress" or any other status
                 if (Date.now() - startTime < maxPollingTime) {
-                  console.log(
-                    `Video ${video.id} is still ${
-                      status.state
-                    }... Retrying in ${pollingInterval / 1000} seconds.`
-                  );
+                  await logger.info(`Video still processing`, { 
+                    videoId: video.id,
+                    status: status.state 
+                  });
                   setTimeout(poll, pollingInterval); // Retry after 20 seconds
                 } else {
-                  console.error(
-                    `Stopped polling for video ${video.id} after 2 minutes.`
-                  );
+                  await logger.warn(`Polling timeout for video`, { videoId: video.id });
                   resolve(); // Stop polling after 2 minutes
                 }
               }
@@ -212,16 +224,16 @@ async function pollPendingVideos() {
           } catch (error) {
             // If any error occurs, retry until the 2-minute limit is reached
             if (Date.now() - startTime < maxPollingTime) {
-              console.error(
-                `Error polling video ${video.id}: ${
-                  error.message
-                }. Retrying in ${pollingInterval / 1000} seconds.`
-              );
+              await logger.error(`Error polling video`, { 
+                videoId: video.id,
+                error: error.message 
+              });
               setTimeout(poll, pollingInterval); // Retry after 20 seconds
             } else {
-              console.error(
-                `Stopped polling for video ${video.id} after 2 minutes due to repeated errors`
-              );
+              await logger.error(`Polling stopped due to repeated errors`, { 
+                videoId: video.id,
+                error: error.message 
+              });
               resolve(); // Stop polling after 2 minutes
             }
           }
@@ -233,19 +245,18 @@ async function pollPendingVideos() {
 
     // Execute all polling processes concurrently
     const results = await Promise.allSettled(pollingPromises);
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        console.log(
-          `Video ${pendingVideos.rows[index].id} processed successfully.`
-        );
-      } else {
-        console.error(result.reason);
-      }
+    await logger.info('Pending videos processing completed', { 
+      total: results.length,
+      successful: results.filter(r => r.status === 'fulfilled').length,
+      failed: results.filter(r => r.status === 'rejected').length
     });
 
     console.log("All pending videos processed.");
   } catch (error) {
-    console.error("Error processing pending videos:", error);
+    await logger.error('Error processing pending videos', { 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 }
 
