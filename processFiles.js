@@ -150,12 +150,8 @@ const { sendNewFilesNotification } = require("./emailHandlers");
         });
         
         if (recipients.length > 0) {
-          try {
-            const emailResults = await sendNewFilesNotification(logger, recipients, processedFileCount);
-            await logger.info('Email notifications completed', { emailResults });
-          } catch (error) {
-            await logger.error('Failed to send email notifications', { error: error.message });
-          }
+          const emailResults = await sendNewFilesNotification(logger, recipients, processedFileCount);
+          await logger.info('Email notifications completed', { emailResults });
         } else {
           await logger.info('No active users found for notifications');
         }

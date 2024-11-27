@@ -57,6 +57,9 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
     const headerEmojis = getRandomEmojis();
     const signatureEmojis = getRandomEmojis();
 
+    // Collect all errors instead of sending notifications immediately
+    const errors = [];
+
     // Map recipients to promises but handle individual failures
     const emailResults = await Promise.allSettled(
       recipients.map(async (recipient) => {
@@ -93,7 +96,8 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
             recipient: recipient.email,
             error: error.message
           });
-          await sendErrorNotification(logger, error, `Failed to send email to ${recipient.email}`);
+          // Collect error instead of sending notification immediately
+          errors.push({ recipient: recipient.email, error: error.message });
           return { success: false, email: recipient.email, error: error.message };
         }
       })
@@ -109,11 +113,18 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
 
     await logger.info('Email notification summary', { successful, failed });
     
-    if (successful === 0 && failed > 0) {
-      const error = new Error('All email notifications failed to send');
-      await logger.error('All email notifications failed', { failedCount: failed });
-      await sendErrorNotification(logger, error, `All ${failed} email notifications failed`);
-      throw error;
+    // Send a single consolidated error notification if there were any failures
+    if (errors.length > 0) {
+      const consolidatedError = new Error(`${errors.length} email notifications failed`);
+      await sendErrorNotification(
+        logger, 
+        consolidatedError, 
+        `Failed recipients:\n${errors.map(e => `${e.recipient}: ${e.error}`).join('\n')}`
+      );
+      
+      if (successful === 0) {
+        throw consolidatedError;
+      }
     }
 
     return emailResults;
@@ -122,7 +133,10 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
       error: error.message,
       stack: error.stack
     });
-    await sendErrorNotification(logger, error, 'General email notification process error');
+    // Only send error notification if it wasn't already sent above
+    if (!error.message.includes('email notifications failed')) {
+      await sendErrorNotification(logger, error, 'General email notification process error');
+    }
     throw error;
   }
 }
