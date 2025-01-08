@@ -82,8 +82,13 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
             `,
           });
           
+          await logger.info('Resend API Response', { 
+            recipient: recipient.email,
+            response: JSON.stringify(response)
+          });
+          
           if (!response || !response.id) {
-            throw new Error('Invalid response from email service');
+            throw new Error(`Invalid response from email service: ${JSON.stringify(response)}`);
           }
           
           await logger.info('Email sent successfully', { 
