@@ -7,7 +7,7 @@ This repository contains a Node.js service that processes files stored in Digita
 ## Features
 
 - **Fetch Files**: Retrieve files from DigitalOcean Spaces.
-- **Upload to Cloudflare**: 
+- **Upload to Cloudflare**:
   - Images are uploaded to [Cloudflare Images](https://developers.cloudflare.com/images/).
   - Videos are uploaded to [Cloudflare Stream](https://developers.cloudflare.com/stream/).
 - **Metadata Management**: Utilize metadata (e.g., date taken, GPS coordinates) stored in a PostgreSQL database.
@@ -148,7 +148,7 @@ Ensure your Docker Compose file reflects the removal of internal cron and labels
 **Updated `docker-compose.yml`:**
 
 ```yaml
-version: '3.8'
+version: "3.8"
 
 services:
   calebmateo-filesync:
@@ -285,9 +285,9 @@ Ensure that `processFiles.js` can distinguish between running as a server and ex
 ```javascript
 // processFiles.js
 
-const { argv } = require('process');
+const { argv } = require("process");
 
-if (argv.includes('--task')) {
+if (argv.includes("--task")) {
   // Execute the file processing task
   processFiles();
 } else {
@@ -296,23 +296,23 @@ if (argv.includes('--task')) {
 }
 
 function processFiles() {
-  console.log('Starting file processing task...');
+  console.log("Starting file processing task...");
   // Your file processing logic here
 
   // Simulate task completion
   setTimeout(() => {
-    console.log('File processing task completed.');
+    console.log("File processing task completed.");
     process.exit(0); // Exit after completing the task
   }, 5000);
 }
 
 function startServer() {
-  const express = require('express');
+  const express = require("express");
   const app = express();
   const PORT = process.env.PORT || 3000;
 
-  app.get('/health', (req, res) => {
-    res.send('OK');
+  app.get("/health", (req, res) => {
+    res.send("OK");
   });
 
   const server = app.listen(PORT, () => {
@@ -320,9 +320,9 @@ function startServer() {
   });
 
   // Handle graceful shutdown
-  process.on('SIGTERM', () => {
+  process.on("SIGTERM", () => {
     server.close(() => {
-      console.log('Process terminated');
+      console.log("Process terminated");
     });
   });
 }
@@ -344,24 +344,30 @@ crontab -e
 **Add the Following Line to Schedule the Task Every 20 Minutes:**
 
 ```cron
-*/20 * * * * /root/calebmateo-filesync/calebmateo-filesync.sh
+*/20 * * * * /usr/bin/flock -n /tmp/calebmateo-filesync.lock /root/calebmateo-filesync/calebmateo-filesync.sh >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
 ```
 
 **Explanation:**
 
 - **`*/20 * * * *`**: Runs the job every 20 minutes.
-- **`/root/calebmateo-filesync/calebmateo-filesync.sh`**: The absolute path to the shell script you created.
+- **`/usr/bin/flock`**: Ensures only one instance of the script runs at a time.
+  - **`-n`**: Non-blocking mode. If a lock exists, skip this run instead of waiting.
+  - **`/tmp/calebmateo-filesync.lock`**: Lock file path.
+- **`/root/calebmateo-filesync/calebmateo-filesync.sh`**: The absolute path to the shell script.
+- **`>> /root/calebmateo-filesync/logs/cron_host.log`**: Appends stdout to the log file.
+- **`2>&1`**: Captures stderr in the same log file.
 
 **Alternatively, If Not Using a Shell Script, Add Directly:**
 
 ```cron
-*/20 * * * * docker compose -f /root/calebmateo-filesync/docker-compose.yml exec calebmateo-filesync pnpm run processFiles >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
+*/20 * * * * /usr/bin/flock -n /tmp/calebmateo-filesync.lock docker compose -f /root/calebmateo-filesync/docker-compose.yml exec calebmateo-filesync pnpm run processFiles >> /root/calebmateo-filesync/logs/cron_host.log 2>&1
 ```
 
 **Notes:**
 
 - **Absolute Paths:** Always use absolute paths in cron jobs to avoid issues with environment variables.
 - **Logging:** The output is appended to `cron_host.log` for monitoring purposes. Ensure the `logs` directory exists.
+- **Lock File:** The lock file prevents multiple instances from running simultaneously, which could cause conflicts.
 
 ### 5. Verify the Cron Job
 
@@ -670,13 +676,10 @@ Email: [matt@tala.dev](mailto:matt@tala.dev)
 - **Docker Documentation:**
   - [Docker Compose Overview](https://docs.docker.com/compose/)
   - [Best Practices for Writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
-  
 - **Cron Documentation:**
   - [Cron How-To](https://help.ubuntu.com/community/CronHowto)
-  
 - **Node.js Documentation:**
   - [pnpm Documentation](https://pnpm.io/)
-  
 - **DigitalOcean Documentation:**
   - [How To Use Docker](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04)
   - [How To Install Docker Compose](https://www.digitalocean.com/community/tutorials/how-to-install-docker-compose-on-ubuntu-20-04)
