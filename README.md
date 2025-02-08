@@ -531,6 +531,37 @@ sudo logrotate -f /etc/logrotate.d/filesync-cron-host
 
 ---
 
+## Updating the Service
+
+When updates are available in the GitHub repository, follow these steps to update your service:
+
+1. **Navigate to Project Directory**
+
+```bash
+cd /root/calebmateo-filesync
+```
+
+2. **Pull Latest Changes**
+
+```bash
+git pull origin main
+```
+
+3. **Rebuild Container Image**
+
+```bash
+docker compose build
+```
+
+**Notes:**
+
+- Always check the changelog or release notes before updating
+- Consider backing up your `.env` file and any custom configurations
+- If you've made local changes, you may need to stash or reset them: `git stash` or `git reset --hard origin/main`
+- The next scheduled cron job will use the updated container image
+
+---
+
 ## Troubleshooting
 
 ### 1. Cron Job Not Executing
