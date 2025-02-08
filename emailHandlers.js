@@ -41,7 +41,7 @@ async function sendErrorNotification(logger, error, context) {
   }
 }
 
-async function sendNewFilesNotification(logger, recipients, fileCount) {
+async function sendNewFilesNotification(logger, recipients, fileCount, uploadSummary, uploaderStats) {
   try {
     // Validate inputs
     if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -50,14 +50,24 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
     if (!fileCount || fileCount <= 0) {
       throw new Error('Invalid file count for email notification');
     }
+    if (!uploadSummary) {
+      throw new Error('Upload summary is required');
+    }
+    if (!Array.isArray(uploaderStats)) {
+      throw new Error('Uploader stats must be an array');
+    }
 
-    await logger.info('Starting email notifications', { recipientCount: recipients.length, fileCount });
+    await logger.info('Starting email notifications', { 
+      recipientCount: recipients.length, 
+      fileCount,
+      uploadSummary 
+    });
 
     const subjectEmojis = getRandomEmojis();
     const headerEmojis = getRandomEmojis();
     const signatureEmojis = getRandomEmojis();
 
-    // Collect all errors instead of sending notifications immediately
+    // Initialize errors array
     const errors = [];
 
     // Map recipients to promises but handle individual failures
@@ -76,26 +86,53 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
             html: `
               <h2>New files uploaded ${headerEmojis}</h2>
               <p>Hi ${recipient.name}!</p>
-              <p>Good news! ${fileCount} new file${fileCount !== 1 ? 's have' : ' has'} been uploaded to Calebmateo.com. A big thanks to whoever uploaded them!</p>
+              <p>Great news! ${uploadSummary} ${uploadSummary.includes(' and ') ? 'have' : 'has'} uploaded new files to Calebmateo.com.</p>
               <p>Take a look: <a href="https://www.calebmateo.com/app/albums/recent-photos"><strong>Recent photos and videos</strong></a></p>
+              
+              <h3>Upload Statistics</h3>
+              <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+                <tr style="background-color: #f8f9fa;">
+                  <th style="padding: 8px; text-align: left; border: 1px solid #dee2e6;">Uploader</th>
+                  <th style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">Last 7 days</th>
+                  <th style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">Last 30 days</th>
+                  <th style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">Last 365 days</th>
+                </tr>
+                ${uploaderStats.length > 0 ? uploaderStats.map(stat => `
+                  <tr>
+                    <td style="padding: 8px; border: 1px solid #dee2e6;">${stat.uploader_name || 'Someone'}</td>
+                    <td style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">${stat.last_7_days || '0'}</td>
+                    <td style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">${stat.last_30_days || '0'}</td>
+                    <td style="padding: 8px; text-align: right; border: 1px solid #dee2e6;">${stat.last_365_days || '0'}</td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td colspan="4" style="padding: 8px; text-align: center; border: 1px solid #dee2e6;">No upload history available</td>
+                  </tr>
+                `}
+              </table>
+              
               <p>See you soon! ${signatureEmojis}</p>
             `,
           });
           
+          // Resend API success is indicated by the presence of an 'id'
           await logger.info('Resend API Response', { 
             recipient: recipient.email,
-            response: JSON.stringify(response)
+            response
           });
           
-          if (!response || !response.id) {
+          // The response itself is the id string in newer versions of the API
+          const messageId = typeof response === 'string' ? response : response?.id;
+          
+          if (!messageId) {
             throw new Error(`Invalid response from email service: ${JSON.stringify(response)}`);
           }
           
           await logger.info('Email sent successfully', { 
             recipient: recipient.email,
-            messageId: response.id 
+            messageId 
           });
-          return { success: true, email: recipient.email, id: response.id };
+          return { success: true, email: recipient.email, id: messageId };
         } catch (error) {
           await logger.error('Failed to send email', {
             recipient: recipient.email,
@@ -110,24 +147,29 @@ async function sendNewFilesNotification(logger, recipients, fileCount) {
 
     // Process results
     const successful = emailResults.filter(result => 
-      result.status === 'fulfilled' && result.value.success
+      result.status === 'fulfilled' && result.value?.success
     ).length;
     const failed = emailResults.filter(result => 
-      result.status === 'rejected' || !result.value.success
+      result.status === 'rejected' || !result.value?.success
     ).length;
 
     await logger.info('Email notification summary', { successful, failed });
     
-    // Send a single consolidated error notification if there were any failures
-    if (errors.length > 0) {
-      const consolidatedError = new Error(`${errors.length} email notifications failed`);
+    // Send error notification if ANY emails failed
+    if (failed > 0) {
+      const errorMessage = failed === recipients.length 
+        ? `All ${failed} email notifications failed`
+        : `${failed} out of ${recipients.length} email notifications failed`;
+        
+      const consolidatedError = new Error(errorMessage);
       await sendErrorNotification(
         logger, 
         consolidatedError, 
         `Failed recipients:\n${errors.map(e => `${e.recipient}: ${e.error}`).join('\n')}`
       );
       
-      if (successful === 0) {
+      // Only throw if all failed - this maintains existing behavior for complete failures
+      if (failed === recipients.length) {
         throw consolidatedError;
       }
     }

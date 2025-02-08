@@ -58,9 +58,12 @@ const { sendNewFilesNotification } = require("./emailHandlers");
       await logger.info('Checking for new files to process');
 
       // Query for files that haven't been copied to Cloudflare yet
-      const result = await pgClient.query(
-        'SELECT * FROM "File" WHERE "copiedToCloudflare" = FALSE'
-      );
+      const result = await pgClient.query(`
+        SELECT f.*, u."name" as "uploaderName"
+        FROM "File" f
+        LEFT JOIN "User" u ON f."uploadedById" = u.id
+        WHERE f."copiedToCloudflare" = FALSE
+      `);
 
       let processedFileCount = 0;
 
@@ -74,6 +77,7 @@ const { sendNewFilesNotification } = require("./emailHandlers");
           dateTaken,
           gpsLatitude,
           gpsLongitude,
+          uploaderName,
         } = file;
 
         // Prepend 'files/' to the path if needed
@@ -140,20 +144,82 @@ const { sendNewFilesNotification } = require("./emailHandlers");
 
       // Send email notification if any files were processed
       if (processedFileCount > 0) {
-        // Fetch email addresses and names from the User table
-        const userResult = await pgClient.query('SELECT email, name FROM "User"');
-        const recipients = userResult.rows;
+        let uploaderStats = [];
         
-        await logger.info('Found recipients for notification', { 
-          recipientCount: recipients.length,
-          processedFileCount 
-        });
-        
-        if (recipients.length > 0) {
-          const emailResults = await sendNewFilesNotification(logger, recipients, processedFileCount);
-          await logger.info('Email notifications completed', { emailResults });
-        } else {
-          await logger.info('No active users found for notifications');
+        try {
+          const statsQuery = `
+            WITH user_stats AS (
+              SELECT 
+                u.name as uploader_name,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '7 days' THEN 1 END), 0) as last_7_days,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '30 days' THEN 1 END), 0) as last_30_days,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '365 days' THEN 1 END), 0) as last_365_days
+              FROM "User" u
+              LEFT JOIN "File" f ON f."userId" = u.id
+              GROUP BY u.id, u.name
+              HAVING COALESCE(COUNT(f.id), 0) > 0
+            )
+            SELECT * FROM user_stats
+            ORDER BY last_7_days DESC, last_30_days DESC, last_365_days DESC;
+          `;
+          
+          const statsResult = await pgClient.query(statsQuery);
+          uploaderStats = statsResult.rows;
+          
+          await logger.info('Retrieved uploader stats', { 
+            statsCount: uploaderStats.length 
+          });
+        } catch (error) {
+          await logger.error('Failed to fetch uploader stats', { 
+            error: error.message,
+            stack: error.stack 
+          });
+          // Continue with empty stats rather than failing
+        }
+
+        // Group files by uploader
+        const uploaderGroups = result.rows.reduce((groups, file) => {
+          const uploaderName = file.uploaderName || 'Someone';
+          if (!groups[uploaderName]) {
+            groups[uploaderName] = 0;
+          }
+          groups[uploaderName]++;
+          return groups;
+        }, {});
+
+        try {
+          // Fetch email addresses and names from the User table
+          const userResult = await pgClient.query('SELECT email, name FROM "User"');
+          const recipients = userResult.rows;
+
+          await logger.info('Found recipients for notification', { 
+            recipientCount: recipients.length,
+            processedFileCount,
+            uploaderGroups 
+          });
+
+          if (recipients.length > 0) {
+            const uploadSummary = Object.entries(uploaderGroups)
+              .map(([name, count]) => `${name} (${count} file${count !== 1 ? 's' : ''})`)
+              .join(' and ');
+
+            const emailResults = await sendNewFilesNotification(
+              logger, 
+              recipients, 
+              processedFileCount,
+              uploadSummary,
+              uploaderStats
+            );
+            await logger.info('Email notifications completed', { emailResults });
+          } else {
+            await logger.info('No active users found for notifications');
+          }
+        } catch (error) {
+          await logger.error('Error sending notifications', { 
+            error: error.message,
+            stack: error.stack 
+          });
+          throw error; // Re-throw to be caught by the outer try-catch
         }
       }
     } catch (error) {
