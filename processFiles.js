@@ -61,7 +61,7 @@ const { sendNewFilesNotification } = require("./emailHandlers");
       const result = await pgClient.query(`
         SELECT f.*, u."name" as "uploaderName"
         FROM "File" f
-        LEFT JOIN "User" u ON f."uploadedById" = u.id
+        LEFT JOIN "User" u ON f."userId" = u.id
         WHERE f."copiedToCloudflare" = FALSE
       `);
 
