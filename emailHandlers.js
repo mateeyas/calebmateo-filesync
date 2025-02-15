@@ -84,7 +84,7 @@ async function sendNewFilesNotification(logger, recipients, fileCount, uploadSum
             to: recipient.email,
             subject: `🔥 New photos/videos`,
             html: `
-              <h2>Yay! We have new photos or videos of Caleb at Calebmateo.com! 🎉</h2>
+              <h3>Yay! We have new photos or videos of Caleb at Calebmateo.com! 🎉</h3>
               <p>Hi ${recipient.name}!</p>
               <p>Great news! ${uploadSummary} ${uploadSummary.includes(' and ') ? 'have' : 'has'} uploaded new files to Calebmateo.com.</p>
               <p>Take a look: <a href="https://www.calebmateo.com/app/albums/recent-photos"><strong>Recent photos and videos</strong></a></p>
