@@ -208,7 +208,8 @@ const { sendNewFilesNotification } = require("./emailHandlers");
               recipients, 
               processedFileCount,
               uploadSummary,
-              uploaderStats
+              uploaderStats,
+              result.rows  // Pass the processed files array
             );
             await logger.info('Email notifications completed', { emailResults });
           } else {

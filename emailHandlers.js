@@ -41,7 +41,7 @@ async function sendErrorNotification(logger, error, context) {
   }
 }
 
-async function sendNewFilesNotification(logger, recipients, fileCount, uploadSummary, uploaderStats) {
+async function sendNewFilesNotification(logger, recipients, fileCount, uploadSummary, uploaderStats, files) {
   try {
     // Validate inputs
     if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -82,12 +82,30 @@ async function sendNewFilesNotification(logger, recipients, fileCount, uploadSum
           const response = await resend.emails.send({
             from: '"Calebmateo.com" <noreply@calebmateo.com>',
             to: recipient.email,
-            subject: `New files uploaded ${subjectEmojis}`,
+            subject: `🔥 New photos/videos`,
             html: `
-              <h2>New files uploaded ${headerEmojis}</h2>
+              <h2>Yay! We have new photos or videos of Caleb at Calebmateo.com! 🎉</h2>
               <p>Hi ${recipient.name}!</p>
               <p>Great news! ${uploadSummary} ${uploadSummary.includes(' and ') ? 'have' : 'has'} uploaded new files to Calebmateo.com.</p>
               <p>Take a look: <a href="https://www.calebmateo.com/app/albums/recent-photos"><strong>Recent photos and videos</strong></a></p>
+              
+              ${files && files.length > 0 ? `
+                <div style="margin: 20px 0;">
+                  <div style="display: grid; grid-template-columns: repeat(3, 100px); gap: 10px; justify-content: center;">
+                    ${files.slice(0, 9).map(file => `
+                      <div style="width: 100px; height: 100px; overflow: hidden;">
+                        <img 
+                          src="${file.fileType.startsWith('image') 
+                            ? `https://imagedelivery.net/NGezeC2AWfiEa8Y2zRUwjw/${file.cloudflareId}/thumbnail100px`
+                            : (file.thumbnail || '')}"
+                          style="width: 100%; height: 100%; object-fit: cover;"
+                          alt="Thumbnail"
+                        />
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
               
               <h3>Upload Statistics</h3>
               <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
@@ -115,17 +133,11 @@ async function sendNewFilesNotification(logger, recipients, fileCount, uploadSum
             `,
           });
           
-          // Resend API success is indicated by the presence of an 'id'
-          await logger.info('Resend API Response', { 
-            recipient: recipient.email,
-            response
-          });
-          
-          // The response itself is the id string in newer versions of the API
-          const messageId = typeof response === 'string' ? response : response?.id;
+          // Check if successful
+          const messageId = response?.data?.id;
           
           if (!messageId) {
-            throw new Error(`Invalid response from email service: ${JSON.stringify(response)}`);
+            throw new Error('No message ID received from email service');
           }
           
           await logger.info('Email sent successfully', { 
