@@ -203,13 +203,24 @@ const { sendNewFilesNotification } = require("./emailHandlers");
               .map(([name, count]) => `${name} (${count} file${count !== 1 ? 's' : ''})`)
               .join(' and ');
 
+            // Fetch the files that were just processed
+            const processedFilesQuery = `
+              SELECT f.*, u."name" as "uploaderName"
+              FROM "File" f
+              LEFT JOIN "User" u ON f."userId" = u.id
+              WHERE f.id = ANY($1)
+            `;
+            const processedFileIds = result.rows.map(file => file.id);
+            const processedFilesResult = await pgClient.query(processedFilesQuery, [processedFileIds]);
+            
+            // Use the processed files for the email notification
             const emailResults = await sendNewFilesNotification(
               logger, 
               recipients, 
               processedFileCount,
               uploadSummary,
               uploaderStats,
-              result.rows  // Pass the processed files array
+              processedFilesResult.rows
             );
             await logger.info('Email notifications completed', { emailResults });
           } else {
