@@ -81,7 +81,7 @@ const { sendNewFilesNotification } = require("./emailHandlers");
         } = file;
 
         // Prepend 'files/' to the path if needed
-        const fullPath = `files/${path}`;
+        const fullPath = path.startsWith('files/') ? path : `files/${path}`;
         await logger.info(`Processing file`, { id, fullPath });
 
         if (!fullPath) {
@@ -142,98 +142,11 @@ const { sendNewFilesNotification } = require("./emailHandlers");
         await logger.info(`File processed successfully`, { id });
       }
 
-      // Send email notification if any files were processed
-      if (processedFileCount > 0) {
-        let uploaderStats = [];
-        
-        try {
-          const statsQuery = `
-            WITH user_stats AS (
-              SELECT 
-                u.name as uploader_name,
-                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '7 days' THEN 1 END), 0) as last_7_days,
-                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '30 days' THEN 1 END), 0) as last_30_days,
-                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '365 days' THEN 1 END), 0) as last_365_days
-              FROM "User" u
-              LEFT JOIN "File" f ON f."userId" = u.id
-              GROUP BY u.id, u.name
-              HAVING COALESCE(COUNT(f.id), 0) > 0
-            )
-            SELECT * FROM user_stats
-            ORDER BY last_7_days DESC, last_30_days DESC, last_365_days DESC;
-          `;
-          
-          const statsResult = await pgClient.query(statsQuery);
-          uploaderStats = statsResult.rows;
-          
-          await logger.info('Retrieved uploader stats', { 
-            statsCount: uploaderStats.length 
-          });
-        } catch (error) {
-          await logger.error('Failed to fetch uploader stats', { 
-            error: error.message,
-            stack: error.stack 
-          });
-          // Continue with empty stats rather than failing
-        }
-
-        // Group files by uploader
-        const uploaderGroups = result.rows.reduce((groups, file) => {
-          const uploaderName = file.uploaderName || 'Someone';
-          if (!groups[uploaderName]) {
-            groups[uploaderName] = 0;
-          }
-          groups[uploaderName]++;
-          return groups;
-        }, {});
-
-        try {
-          // Fetch email addresses and names from the User table
-          const userResult = await pgClient.query('SELECT email, name FROM "User"');
-          const recipients = userResult.rows;
-
-          await logger.info('Found recipients for notification', { 
-            recipientCount: recipients.length,
-            processedFileCount,
-            uploaderGroups 
-          });
-
-          if (recipients.length > 0) {
-            const uploadSummary = Object.entries(uploaderGroups)
-              .map(([name, count]) => `${name} (${count} file${count !== 1 ? 's' : ''})`)
-              .join(' and ');
-
-            // Fetch the files that were just processed
-            const processedFilesQuery = `
-              SELECT f.*, u."name" as "uploaderName"
-              FROM "File" f
-              LEFT JOIN "User" u ON f."userId" = u.id
-              WHERE f.id = ANY($1)
-            `;
-            const processedFileIds = result.rows.map(file => file.id);
-            const processedFilesResult = await pgClient.query(processedFilesQuery, [processedFileIds]);
-            
-            // Use the processed files for the email notification
-            const emailResults = await sendNewFilesNotification(
-              logger, 
-              recipients, 
-              processedFileCount,
-              uploadSummary,
-              uploaderStats,
-              processedFilesResult.rows
-            );
-            await logger.info('Email notifications completed', { emailResults });
-          } else {
-            await logger.info('No active users found for notifications');
-          }
-        } catch (error) {
-          await logger.error('Error sending notifications', { 
-            error: error.message,
-            stack: error.stack 
-          });
-          throw error; // Re-throw to be caught by the outer try-catch
-        }
-      }
+      // Return processed file info for notification after polling
+      return {
+        processedFileCount,
+        processedFileIds: result.rows.map(file => file.id)
+      };
     } catch (error) {
       await logger.error('Error processing files', { 
         error: error.message,
@@ -253,8 +166,8 @@ const { sendNewFilesNotification } = require("./emailHandlers");
         ["pending"]
       );
 
-      const maxPollingTime = 2 * 60 * 1000; // 2 minutes
-      const pollingInterval = 20 * 1000; // 20 seconds
+      const maxPollingTime = 8 * 60 * 1000; // 8 minutes
+      const pollingInterval = 30 * 1000; // 30 seconds
 
       const pollingPromises = pendingVideos.rows.map((video) => {
         return new Promise((resolve) => {
@@ -338,9 +251,121 @@ const { sendNewFilesNotification } = require("./emailHandlers");
     }
   }
 
+  // Function to send notification email after all processing is complete
+  async function sendNotificationAfterProcessing(processedFileIds) {
+    try {
+      await logger.info('Checking for ready files to send notifications');
+
+      // Query for the specific files that were processed in this run and are now ready
+      const readyFilesResult = await pgClient.query(`
+        SELECT f.*, u."name" as "uploaderName"
+        FROM "File" f
+        LEFT JOIN "User" u ON f."userId" = u.id
+        WHERE f.id = ANY($1) AND f."status" = 'ready'
+        ORDER BY f."createdAt" DESC
+      `, [processedFileIds]);
+
+      const readyFiles = readyFilesResult.rows;
+
+      if (readyFiles.length > 0) {
+        let uploaderStats = [];
+        
+        try {
+          const statsQuery = `
+            WITH user_stats AS (
+              SELECT 
+                u.name as uploader_name,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '7 days' THEN 1 END), 0) as last_7_days,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '30 days' THEN 1 END), 0) as last_30_days,
+                COALESCE(COUNT(CASE WHEN f."createdAt" > NOW() - INTERVAL '365 days' THEN 1 END), 0) as last_365_days
+              FROM "User" u
+              LEFT JOIN "File" f ON f."userId" = u.id
+              GROUP BY u.id, u.name
+              HAVING COALESCE(COUNT(f.id), 0) > 0
+            )
+            SELECT * FROM user_stats
+            ORDER BY last_7_days DESC, last_30_days DESC, last_365_days DESC;
+          `;
+          
+          const statsResult = await pgClient.query(statsQuery);
+          uploaderStats = statsResult.rows;
+          
+          await logger.info('Retrieved uploader stats', { 
+            statsCount: uploaderStats.length 
+          });
+        } catch (error) {
+          await logger.error('Failed to fetch uploader stats', { 
+            error: error.message,
+            stack: error.stack 
+          });
+          // Continue with empty stats rather than failing
+        }
+
+        // Group files by uploader
+        const uploaderGroups = readyFiles.reduce((groups, file) => {
+          const uploaderName = file.uploaderName || 'Someone';
+          if (!groups[uploaderName]) {
+            groups[uploaderName] = 0;
+          }
+          groups[uploaderName]++;
+          return groups;
+        }, {});
+
+        try {
+          // Fetch email addresses and names from the User table
+          const userResult = await pgClient.query('SELECT email, name FROM "User"');
+          const recipients = userResult.rows;
+
+          await logger.info('Found recipients for notification', { 
+            recipientCount: recipients.length,
+            readyFileCount: readyFiles.length,
+            uploaderGroups 
+          });
+
+          if (recipients.length > 0) {
+            const uploadSummary = Object.entries(uploaderGroups)
+              .map(([name, count]) => `${name} (${count} file${count !== 1 ? 's' : ''})`)
+              .join(' and ');
+
+            // Send notification with ready files (including thumbnails)
+            const emailResults = await sendNewFilesNotification(
+              logger, 
+              recipients, 
+              readyFiles.length,
+              uploadSummary,
+              uploaderStats,
+              readyFiles
+            );
+            await logger.info('Email notifications completed', { emailResults });
+          } else {
+            await logger.info('No active users found for notifications');
+          }
+        } catch (error) {
+          await logger.error('Error sending notifications', { 
+            error: error.message,
+            stack: error.stack 
+          });
+          throw error; // Re-throw to be caught by the outer try-catch
+        }
+      } else {
+        await logger.info('No ready files found for notification');
+      }
+    } catch (error) {
+      await logger.error('Error sending notification after processing', { 
+        error: error.message,
+        stack: error.stack 
+      });
+    }
+  }
+
   try {
-    await processNewFiles();
+    const processedInfo = await processNewFiles();
     await pollPendingVideos();
+    
+    // Send notification after all processing is complete
+    if (processedInfo.processedFileCount > 0) {
+      await sendNotificationAfterProcessing(processedInfo.processedFileIds);
+    }
   } finally {
     await pgClient.end(); // Close the database connection after all processing
   }
